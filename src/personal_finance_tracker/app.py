@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
 
-from personal_finance_tracker import analytics, charts
+from personal_finance_tracker import analytics, charts, currency
 from personal_finance_tracker.db import ExpenseDB
 
 st.set_page_config(page_title="Expense Tracker", page_icon="💸", layout="wide")
@@ -37,7 +37,7 @@ def md_escape(text: str) -> str:
 
 def render_alerts(alerts: list[analytics.BudgetAlert]) -> None:
     for a in alerts:
-        msg = f"**{md_escape(a.category)}**: spent {a.spent:,.2f} of {a.limit:,.2f} ({a.ratio:.0%})"
+        msg = f"**{md_escape(a.category)}**: spent {currency.fmt(a.spent)} of {currency.fmt(a.limit)} ({a.ratio:.0%})"
         if a.level == "over":
             st.error(f"Over budget — {msg}", icon="🚨")
         elif a.level == "warning":
@@ -67,7 +67,12 @@ with tab_add:
     with st.form("add_expense", clear_on_submit=True):
         c1, c2, c3 = st.columns(3)
         when = c1.date_input("Date", value=date.today())
-        amount = c2.number_input("Amount", min_value=0.01, step=1.0, format="%.2f")
+        amount = c2.number_input(
+            f"Amount ({currency.CODE})",
+            min_value=currency.MIN_AMOUNT,
+            step=currency.STEP,
+            format=currency.INPUT_FORMAT,
+        )
         category = c3.selectbox("Category", categories + [NEW_CATEGORY])
         new_category = st.text_input("New category name (if selected above)")
         description = st.text_input("Description", placeholder="e.g. Groceries at the market")
@@ -96,7 +101,7 @@ with tab_add:
                 alerts = analytics.budget_status(
                     db.get_expenses(start, end), {category: budgets[category]}
                 )
-            st.session_state["flash"] = (f"Added {amount:,.2f} to {md_escape(category)}.", alerts)
+            st.session_state["flash"] = (f"Added {currency.fmt(amount)} to {md_escape(category)}.", alerts)
             st.rerun()
 
 # --- Dashboard --------------------------------------------------------------
@@ -120,8 +125,8 @@ with tab_dash:
         m1, m2, m3 = st.columns(3)
         m1.metric(
             f"Spent in {selected}",
-            f"{month_total:,.2f}",
-            delta=f"{month_total - prev_total:,.2f} vs {prev}" if prev_total else None,
+            currency.fmt(month_total),
+            delta=f"{currency.signed(month_total - prev_total)} vs {prev}" if prev_total else None,
             delta_color="inverse",
         )
         m2.metric("Transactions", len(month_df))
@@ -161,7 +166,13 @@ with tab_manage:
             view.assign(date=view["date"].dt.date),
             hide_index=True,
             width="stretch",
-            column_config={"amount": st.column_config.NumberColumn(format="%.2f")},
+            column_config={
+                "amount": st.column_config.NumberColumn(
+                    f"amount ({currency.CODE})",
+                    format="localized",  # thousands separators
+                    step=10 ** -currency.DECIMALS,  # sets displayed decimals
+                )
+            },
         )
         st.download_button(
             "Download CSV", analytics.csv_safe(view).to_csv(index=False), "expenses.csv", "text/csv"
@@ -169,7 +180,7 @@ with tab_manage:
 
         st.subheader("Edit or delete")
         labels = {
-            int(r.id): f"#{r.id} · {r.date.date()} · {r.category} · {r.amount:,.2f} · {r.description}"
+            int(r.id): f"#{r.id} · {r.date.date()} · {r.category} · {currency.fmt(r.amount)} · {r.description}"
             for r in view.itertuples()
         }
         if labels:
@@ -182,7 +193,11 @@ with tab_manage:
                 c1, c2, c3 = st.columns(3)
                 e_date = c1.date_input("Date", value=row["date"].date())
                 e_amount = c2.number_input(
-                    "Amount", min_value=0.01, value=float(row["amount"]), format="%.2f"
+                    f"Amount ({currency.CODE})",
+                    min_value=currency.input_min(float(row["amount"])),
+                    step=currency.STEP,
+                    value=float(row["amount"]),
+                    format=currency.INPUT_FORMAT,
                 )
                 cat_options = categories if row["category"] in categories else categories + [row["category"]]
                 e_cat = c3.selectbox("Category", cat_options, index=cat_options.index(row["category"]))
@@ -212,10 +227,11 @@ with tab_budgets:
     b_cat = c1.selectbox("Category", categories, key="budget_category")
     with st.form("budget"):
         b_limit = st.number_input(
-            f"Monthly limit for {b_cat}",
-            min_value=0.01,
-            value=float(budgets.get(b_cat, 100.0)),
-            format="%.2f",
+            f"Monthly limit for {md_escape(b_cat)} ({currency.CODE})",
+            min_value=currency.input_min(budgets.get(b_cat)),
+            step=currency.STEP,
+            value=float(budgets.get(b_cat, currency.DEFAULT_BUDGET)),
+            format=currency.INPUT_FORMAT,
             key=f"budget_limit_{b_cat}",
         )
         if st.form_submit_button("Save budget", type="primary"):
@@ -230,7 +246,7 @@ with tab_budgets:
             c1, c2 = st.columns([6, 1])
             c1.progress(
                 min(a.ratio, 1.0),
-                text=f"{md_escape(a.category)}: {a.spent:,.2f} / {a.limit:,.2f} ({a.ratio:.0%})",
+                text=f"{md_escape(a.category)}: {currency.number(a.spent)} / {currency.fmt(a.limit)} ({a.ratio:.0%})",
             )
             if c2.button("Remove", key=f"rm_{a.category}"):
                 db.delete_budget(a.category)

@@ -1,12 +1,13 @@
 """Headless UI tests for the Streamlit app."""
 
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
 import streamlit as st
 from streamlit.testing.v1 import AppTest
 
+from personal_finance_tracker import currency
 from personal_finance_tracker.db import ExpenseDB
 
 APP = str(Path(__file__).parents[1] / "src" / "personal_finance_tracker" / "app.py")
@@ -93,7 +94,7 @@ def test_budget_saved_for_selected_category(db):
     at.run()
     at.selectbox(key="budget_category").set_value("Transport").run()
     budgets = at.tabs[3]
-    assert budgets.number_input[0].value == 100.0  # default for a category with no budget
+    assert budgets.number_input[0].value == currency.DEFAULT_BUDGET  # no budget saved yet
     budgets.number_input[0].set_value(50.0)
     budgets.button[0].click()
     at.run()
@@ -134,3 +135,32 @@ def test_top_category_metric_is_escaped(db):
     at = run_app()
     top = next(m for m in at.metric if m.label == "Top category")
     assert "[pay](http" not in top.value
+
+
+def test_amounts_shown_in_ugx(db):
+    db.set_budget("Food", 50)
+    at = run_app()
+    spent = next(m for m in at.metric if m.label.startswith("Spent in"))
+    assert spent.value == "UGX 95"
+    assert any("UGX 95 of UGX 50" in e.value for e in at.error)
+    assert at.tabs[0].number_input[0].label == "Amount (UGX)"
+
+
+def test_amounts_below_input_minimum_do_not_crash(db):
+    # Stored before UGX became the default (DB accepts down to 0.01).
+    db.add_expense(date.today(), 0.5, "Food", "old cents entry")
+    db.set_budget("Food", 0.5)
+    at = run_app()
+    assert not at.exception
+    assert len(at.tabs[3].number_input) == 1  # Budgets tab rendered
+
+
+def test_spending_drop_shows_down_arrow(db):
+    from streamlit.proto.Metric_pb2 import Metric as MetricProto
+
+    last_month = (date.today().replace(day=1) - timedelta(days=1))
+    db.add_expense(last_month, 5000.0, "Food")  # this month: 95
+    at = run_app()
+    spent = next(m for m in at.metric if m.label.startswith("Spent in"))
+    assert spent.proto.delta.startswith("-UGX 4,905")
+    assert spent.proto.direction == MetricProto.MetricDirection.DOWN

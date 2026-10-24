@@ -19,6 +19,8 @@ uv run personal-finance-tracker      # opens the Streamlit app
 ```
 Data is stored in `expenses.db` in the current directory. Set `EXPENSE_DB_PATH` to use a different file.
 
+Amounts are in Ugandan shillings (UGX) by default, shown without decimals. Set `EXPENSE_CURRENCY` (e.g. `EXPENSE_CURRENCY=USD`) to use another currency.
+
 ## Test
 ```bash
 uv run pytest

@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Expense tracker: log spending, group by category, monthly charts and budget alerts"
 readme = "README.md"
 authors = [
-    { name = "Brian Asingwire", email = "brianasingwire7@gmail.com" }
+    { name = "Brian Asingwire", email = "123864638+Brianasingwire@users.noreply.github.com" }
 ]
 requires-python = ">=3.12"
 dependencies = [

@@ -138,3 +138,35 @@ def test_charts_render(db):
         assert isinstance(fig, Figure)
         fig.canvas.draw()  # text is laid out (and mathtext parsed) at draw time
         plt.close(fig)
+
+
+def test_currency_defaults_to_ugx():
+    from personal_finance_tracker import currency
+
+    assert currency.CODE == "UGX"
+    assert currency.fmt(1234567.4) == "UGX 1,234,567"
+    assert currency.number(12500) == "12,500"
+    assert currency.number(12.5) == "13"  # half up, not banker's rounding
+    assert currency.number(-0.4) == "0"  # no "-0"
+    assert currency.signed(-3000) == "-UGX 3,000"
+    assert currency.signed(2500) == "+UGX 2,500"
+    assert currency.signed(-0.4) == "+UGX 0"
+    assert currency.input_min() == 1.0
+    assert currency.input_min(0.5) == 0.5
+
+
+@pytest.mark.parametrize(
+    "env, code, formatted, min_amount, budget",
+    [
+        ("usd", "USD", "USD 1,234.50", 0.01, 100.0),
+        ("JPY", "JPY", "JPY 1,235", 1.0, 500_000.0),
+        ("[x](http://e)", "UGX", "UGX 1,235", 1.0, 500_000.0),  # invalid -> default
+        ("", "UGX", "UGX 1,235", 1.0, 500_000.0),
+    ],
+)
+def test_currency_override(use_currency, env, code, formatted, min_amount, budget):
+    currency = use_currency(env)
+    assert currency.CODE == code
+    assert currency.fmt(1234.5) == formatted
+    assert currency.MIN_AMOUNT == min_amount
+    assert currency.DEFAULT_BUDGET == budget
