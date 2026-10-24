@@ -22,3 +22,6 @@ wheels/
 .env
 .streamlit/secrets.toml
 .claude/settings.local.json
+.env.*
+*.sqlite3-*
+*.xlsx

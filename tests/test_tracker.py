@@ -74,7 +74,7 @@ def test_empty_frames(tmp_path):
 
 
 def test_rounds_before_validating(db):
-    for bad in (0.004, float("nan"), -1):
+    for bad in (0.004, float("nan"), float("inf"), -1):
         with pytest.raises(ValueError):
             db.add_expense(date(2026, 10, 1), bad, "Food")
         with pytest.raises(ValueError):
@@ -123,9 +123,12 @@ def test_csv_safe_neutralises_formulas(db):
 
 
 def test_charts_render(db):
+    import matplotlib.pyplot as plt
     from matplotlib.figure import Figure
     from personal_finance_tracker import charts
 
+    db.add_expense(date(2026, 10, 3), 1.0, r"$\frac$")  # would be invalid mathtext
+    db.add_expense(date(2026, 10, 3), 1.0, "_hidden")
     df = db.get_expenses()
     for fig in (
         charts.category_bar(analytics.by_category(df)),
@@ -133,3 +136,5 @@ def test_charts_render(db):
         charts.monthly_stacked(analytics.monthly_by_category(df)),
     ):
         assert isinstance(fig, Figure)
+        fig.canvas.draw()  # text is laid out (and mathtext parsed) at draw time
+        plt.close(fig)

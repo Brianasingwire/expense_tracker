@@ -83,3 +83,54 @@ def test_category_markdown_is_escaped(db):
     rendered = " ".join(e.value for e in at.error)
     assert "Over budget" in rendered
     assert "![x](http" not in rendered
+
+
+def test_budget_saved_for_selected_category(db):
+    at = run_app()
+    budgets = at.tabs[3]
+    budgets.number_input[0].set_value(80.0)
+    budgets.button[0].click()
+    at.run()
+    at.selectbox(key="budget_category").set_value("Transport").run()
+    budgets = at.tabs[3]
+    assert budgets.number_input[0].value == 100.0  # default for a category with no budget
+    budgets.number_input[0].set_value(50.0)
+    budgets.button[0].click()
+    at.run()
+    assert not at.exception
+    assert db.get_budgets() == {"Food": 80.0, "Transport": 50.0}
+    # Switching back pre-fills the saved limit.
+    at.selectbox(key="budget_category").set_value("Food").run()
+    assert at.tabs[3].number_input[0].value == 80.0
+
+
+def test_remove_budget(db):
+    db.set_budget("Food", 100)
+    at = run_app()
+    at.button(key="rm_Food").click()
+    at.run()
+    assert db.get_budgets() == {}
+
+
+def test_edit_keeps_selection_and_delete_hits_right_row(db):
+    second = db.add_expense(date.today(), 5.0, "Transport", "bus")
+    first = int(db.get_expenses()["id"].min())
+    at = run_app()
+    at.selectbox(key="edit_expense_id").set_value(first).run()
+    manage = at.tabs[2]
+    desc = next(t for t in manage.text_input if t.label == "Description")
+    desc.set_value("groceries edited")
+    next(b for b in manage.button if b.label == "Save").click()
+    at.run()
+    assert not at.exception
+    assert at.selectbox(key="edit_expense_id").value == first
+    next(b for b in at.tabs[2].button if b.label == "Delete").click()
+    at.run()
+    assert list(db.get_expenses()["id"]) == [second]
+
+
+def test_top_category_metric_is_escaped(db):
+    db.add_expense(date.today(), 500.0, "[pay](http://evil)")
+    at = run_app()
+    top = next(m for m in at.metric if m.label == "Top category")
+    assert "[pay](http" not in top.value

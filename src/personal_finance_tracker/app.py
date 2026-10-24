@@ -1,4 +1,4 @@
-"""Streamlit UI. Run with `uv run personal-finance-tracker` or `streamlit run` on this file."""
+"""Streamlit UI. Run with `uv run personal-finance-tracker` (binds to localhost only)."""
 
 from __future__ import annotations
 
@@ -53,6 +53,11 @@ NEW_CATEGORY = "+ New category…"
 st.title("💸 Expense Tracker")
 st.caption("Log what you spend, sort it into categories, and see where your money goes.")
 
+if flash := st.session_state.pop("flash", None):
+    message, alerts = flash
+    st.success(message)
+    render_alerts(alerts)
+
 tab_add, tab_dash, tab_manage, tab_budgets = st.tabs(
     ["➕ Add expense", "📊 Dashboard", "🗂️ Manage expenses", "🎯 Budgets"]
 )
@@ -94,11 +99,6 @@ with tab_add:
             st.session_state["flash"] = (f"Added {amount:,.2f} to {md_escape(category)}.", alerts)
             st.rerun()
 
-    if flash := st.session_state.pop("flash", None):
-        message, alerts = flash
-        st.success(message)
-        render_alerts(alerts)
-
 # --- Dashboard --------------------------------------------------------------
 with tab_dash:
     if all_expenses.empty:
@@ -126,7 +126,7 @@ with tab_dash:
         )
         m2.metric("Transactions", len(month_df))
         top = analytics.by_category(month_df)
-        m3.metric("Top category", top.index[0] if not top.empty else "—")
+        m3.metric("Top category", md_escape(top.index[0]) if not top.empty else "—")
 
         alerts = analytics.budget_status(month_df, db.get_budgets())
         render_alerts(alerts)
@@ -173,7 +173,10 @@ with tab_manage:
             for r in view.itertuples()
         }
         if labels:
-            expense_id = st.selectbox("Expense", list(labels), format_func=labels.get)
+            # Fixed key: otherwise the selection resets whenever a label changes (e.g. after Save).
+            expense_id = st.selectbox(
+                "Expense", list(labels), format_func=labels.get, key="edit_expense_id"
+            )
             row = all_expenses.set_index("id").loc[expense_id]
             with st.form(f"edit_{expense_id}"):
                 c1, c2, c3 = st.columns(3)
@@ -189,9 +192,11 @@ with tab_manage:
                 delete = b2.form_submit_button("Delete")
             if save:
                 db.update_expense(expense_id, e_date, e_amount, e_cat, e_desc)
+                st.session_state["flash"] = (f"Updated expense #{expense_id}.", [])
                 st.rerun()
             if delete:
                 db.delete_expense(expense_id)
+                st.session_state["flash"] = (f"Deleted expense #{expense_id}.", [])
                 st.rerun()
 
 # --- Budgets ----------------------------------------------------------------
@@ -201,14 +206,21 @@ with tab_budgets:
         f"{analytics.WARNING_THRESHOLD:.0%} and an alert once it's exceeded."
     )
     budgets = db.get_budgets()
+    # Category is chosen outside the form so the limit field pre-fills as soon as it
+    # changes; the per-category key keeps the typed value stable through submit.
+    c1, c2 = st.columns(2)
+    b_cat = c1.selectbox("Category", categories, key="budget_category")
     with st.form("budget"):
-        c1, c2 = st.columns(2)
-        b_cat = c1.selectbox("Category", categories)
-        b_limit = c2.number_input(
-            "Monthly limit", min_value=0.01, value=float(budgets.get(b_cat, 100.0)), format="%.2f"
+        b_limit = st.number_input(
+            f"Monthly limit for {b_cat}",
+            min_value=0.01,
+            value=float(budgets.get(b_cat, 100.0)),
+            format="%.2f",
+            key=f"budget_limit_{b_cat}",
         )
         if st.form_submit_button("Save budget", type="primary"):
             db.set_budget(b_cat, b_limit)
+            st.session_state["flash"] = (f"Saved budget for {md_escape(b_cat)}.", [])
             st.rerun()
 
     if budgets:

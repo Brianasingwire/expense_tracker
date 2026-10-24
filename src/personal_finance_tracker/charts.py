@@ -10,6 +10,9 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from matplotlib.figure import Figure
 
+# Category names are user text: don't let "$...$" be parsed as mathtext (it can raise).
+plt.rcParams["text.parse_math"] = False
+
 ACCENT = "#e8458b"
 PALETTE = plt.get_cmap("tab10").colors
 
@@ -52,7 +55,9 @@ def monthly_stacked(pivot: pd.DataFrame) -> Figure:
     bottom = None
     for i, category in enumerate(pivot.columns):
         values = pivot[category].values
-        ax.bar(pivot.index, values, bottom=bottom, label=category,
+        # Matplotlib hides legend labels starting with "_"; a leading space keeps them.
+        label = f" {category}" if str(category).startswith("_") else category
+        ax.bar(pivot.index, values, bottom=bottom, label=label,
                color=PALETTE[i % len(PALETTE)])
         bottom = values if bottom is None else bottom + values
     ax.set_title("Monthly spending by category")

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 import sqlite3
 from contextlib import contextmanager
@@ -42,9 +43,9 @@ CREATE TABLE IF NOT EXISTS budgets (
 
 
 def _positive_money(value: float, name: str) -> float:
-    """Round to cents, then validate (so 0.004 and NaN are rejected, not stored)."""
+    """Round to cents, then validate (so 0.004, NaN and inf are rejected, not stored)."""
     value = round(float(value), 2)
-    if not value > 0:
+    if not math.isfinite(value) or value <= 0:
         raise ValueError(f"{name} must be at least 0.01")
     return value
 
