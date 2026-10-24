@@ -47,11 +47,13 @@ def test_add_expense_triggers_budget_alert(db):
 def test_new_category_keeps_casing_and_reuses_existing(db):
     at = run_app()
     form = add_tab(at)
+    form.number_input[0].set_value(5000.0)
     form.selectbox[0].set_value("+ New category…")
     form.text_input[0].set_value("TV subscriptions")
     form.button[0].click()
     at.run()
     form = add_tab(at)
+    form.number_input[0].set_value(5000.0)
     form.selectbox[0].set_value("+ New category…")
     form.text_input[0].set_value("tv SUBSCRIPTIONS")
     form.button[0].click()
@@ -62,6 +64,7 @@ def test_new_category_keeps_casing_and_reuses_existing(db):
 def test_new_category_name_without_selecting_option_is_rejected(db):
     at = run_app()
     form = add_tab(at)
+    form.number_input[0].set_value(5000.0)
     form.text_input[0].set_value("Pets")  # Category left on the default
     form.button[0].click()
     at.run()
@@ -146,7 +149,7 @@ def test_amounts_shown_in_ugx(db):
     assert at.tabs[0].number_input[0].label == "Amount (UGX)"
 
 
-def test_amounts_below_input_minimum_do_not_crash(db):
+def test_small_stored_amounts_do_not_crash(db):
     # Stored before UGX became the default (DB accepts down to 0.01).
     db.add_expense(date.today(), 0.5, "Food", "old cents entry")
     db.set_budget("Food", 0.5)
@@ -164,3 +167,100 @@ def test_spending_drop_shows_down_arrow(db):
     spent = next(m for m in at.metric if m.label.startswith("Spent in"))
     assert spent.proto.delta.startswith("-UGX 4,905")
     assert spent.proto.direction == MetricProto.MetricDirection.DOWN
+
+
+def test_amount_input_starts_at_zero(db):
+    at = run_app()
+    amount = add_tab(at).number_input[0]
+    assert amount.value == 0.0 and amount.min == 0.0 and amount.step == 1000.0
+    amount.increment().increment()  # two "+" clicks (committed on form submit)
+    assert amount.value == 2000.0
+    add_tab(at).button[0].click()
+    at.run()
+    assert 2000.0 in db.get_expenses()["amount"].values
+
+
+def test_zero_amounts_are_rejected(db):
+    at = run_app()
+    add_tab(at).button[0].click()  # amount left at 0
+    at.run()
+    assert any("greater than 0" in e.value for e in at.error)
+    assert len(db.get_expenses()) == 1
+
+    at.tabs[3].number_input[0].set_value(0.0)
+    at.tabs[3].button[0].click()
+    at.run()
+    assert any("greater than 0" in e.value for e in at.error)
+    assert db.get_budgets() == {}
+
+
+def test_add_round_amount(db):
+    at = run_app()
+    add_tab(at).number_input[0].set_value(7000.0)
+    add_tab(at).button[0].click()
+    at.run()
+    assert at.success[0].value == "Added UGX 7,000 to Food."
+
+
+def test_rejected_add_keeps_input_and_success_resets(db):
+    at = run_app()
+    form = add_tab(at)
+    form.selectbox[0].set_value("Transport")
+    next(t for t in form.text_input if t.label == "Description").set_value("Lunch with client")
+    form.button[0].click()  # amount left at 0
+    at.run()
+    assert any("greater than 0" in e.value for e in at.error)
+
+    form = add_tab(at)
+    assert form.selectbox[0].value == "Transport"
+    assert next(t for t in form.text_input if t.label == "Description").value == "Lunch with client"
+    form.number_input[0].set_value(5000.0)
+    form.button[0].click()
+    at.run()
+    row = db.get_expenses().iloc[0]
+    assert (row["amount"], row["category"], row["description"]) == (5000.0, "Transport", "Lunch with client")
+
+    form = add_tab(at)  # fields reset after a successful add
+    assert form.number_input[0].value == 0.0
+    assert form.selectbox[0].value == "Food"
+    assert next(t for t in form.text_input if t.label == "Description").value == ""
+
+
+def test_add_shows_all_errors_at_once(db):
+    at = run_app()
+    add_tab(at).selectbox[0].set_value("+ New category…")  # name blank, amount 0
+    add_tab(at).button[0].click()
+    at.run()
+    messages = [e.value for e in at.error]
+    assert any("name for the new category" in m for m in messages)
+    assert any("greater than 0" in m for m in messages)
+
+
+def test_no_change_month_has_no_arrow(db):
+    from streamlit.proto.Metric_pb2 import Metric as MetricProto
+
+    last_month = date.today().replace(day=1) - timedelta(days=1)
+    db.add_expense(last_month, 95.0, "Food")  # same as this month
+    at = run_app()
+    spent = next(m for m in at.metric if m.label.startswith("Spent in"))
+    assert spent.proto.delta.startswith("UGX 0 vs")
+    assert spent.proto.direction == MetricProto.MetricDirection.NONE
+
+
+def test_edit_form_amount_validation(db):
+    old = db.add_expense(date.today(), 0.4, "Food", "cents-era row")
+    at = run_app()
+    at.selectbox(key="edit_expense_id").set_value(old).run()
+    manage = at.tabs[2]
+    next(t for t in manage.text_input if t.label == "Description").set_value("renamed")
+    next(b for b in manage.button if b.label == "Save").click()
+    at.run()
+    row = db.get_expenses().set_index("id").loc[old]
+    assert (row["amount"], row["description"]) == (0.4, "renamed")  # unchanged amount accepted
+
+    manage = at.tabs[2]
+    next(n for n in manage.number_input if n.label.startswith("Amount")).set_value(0.0)
+    next(b for b in manage.button if b.label == "Save").click()
+    at.run()
+    assert any("greater than 0" in e.value for e in at.error)
+    assert db.get_expenses().set_index("id").loc[old]["amount"] == 0.4

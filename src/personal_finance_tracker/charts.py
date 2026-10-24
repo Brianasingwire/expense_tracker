@@ -9,6 +9,7 @@ matplotlib.use("Agg")  # headless backend; Streamlit renders the figure objects
 import matplotlib.pyplot as plt
 import pandas as pd
 from matplotlib.figure import Figure
+from matplotlib.ticker import FuncFormatter
 
 from personal_finance_tracker import currency
 
@@ -19,7 +20,12 @@ ACCENT = "#e8458b"
 PALETTE = plt.get_cmap("tab10").colors
 
 
+# Value axes in full currency units ("2,500,000"), not Matplotlib's "2.5" + "1e6" offset.
+_MONEY = FuncFormatter(lambda value, _pos: currency.number(value))
+
+
 def _style(ax) -> None:
+    ax.yaxis.set_major_formatter(_MONEY)
     ax.spines[["top", "right"]].set_visible(False)
     ax.grid(axis="y", alpha=0.3)
     ax.set_axisbelow(True)
@@ -45,6 +51,7 @@ def category_bar(totals: pd.Series) -> Figure:
     ax.bar_label(bars, labels=[currency.number(v) for v in data.values], fontsize=8, padding=3)
     ax.set_title("Spending by category")
     ax.set_xlabel(f"Amount ({currency.CODE})")
+    ax.xaxis.set_major_formatter(_MONEY)
     ax.spines[["top", "right"]].set_visible(False)
     ax.grid(axis="x", alpha=0.3)
     ax.set_axisbelow(True)

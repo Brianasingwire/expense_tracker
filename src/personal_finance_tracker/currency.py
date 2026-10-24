@@ -20,14 +20,30 @@ _ZERO_DECIMAL = {"UGX", "RWF", "BIF", "JPY", "KRW"}
 DECIMALS = 0 if CODE in _ZERO_DECIMAL else 2
 
 INPUT_FORMAT = f"%.{DECIMALS}f"
-MIN_AMOUNT = 1.0 if DECIMALS == 0 else 0.01
+# Inputs start at 0 so +/- steps land on round numbers (7,000 not 7,001);
+# zero is rejected on submit via is_positive().
+INPUT_MIN = 0.0
 STEP = 1000.0 if DECIMALS == 0 else 1.0
 DEFAULT_BUDGET = 500_000.0 if DECIMALS == 0 else 100.0
 
 
+def _rounded(amount: float) -> Decimal:
+    return Decimal(str(amount)).quantize(Decimal(1).scaleb(-DECIMALS), ROUND_HALF_UP)
+
+
+def is_positive(amount: float) -> bool:
+    """True if the amount is above zero once rounded to the currency's decimals."""
+    return _rounded(amount) > 0
+
+
+def is_zero(amount: float) -> bool:
+    """True if the amount displays as zero in this currency."""
+    return _rounded(amount) == 0
+
+
 def number(amount: float) -> str:
     """Amount with thousands separators and the currency's decimals, rounded half up."""
-    rounded = Decimal(str(amount)).quantize(Decimal(1).scaleb(-DECIMALS), ROUND_HALF_UP)
+    rounded = _rounded(amount)
     if rounded == 0:
         rounded = abs(rounded)  # avoid "-0"
     return f"{rounded:,.{DECIMALS}f}"
@@ -39,12 +55,11 @@ def fmt(amount: float) -> str:
 
 
 def signed(amount: float) -> str:
-    """Signed amount with the sign first ('-UGX 3,000'), so st.metric picks the right arrow."""
-    magnitude = number(abs(amount))
-    sign = "-" if amount < 0 and magnitude != number(0) else "+"
-    return f"{sign}{CODE} {magnitude}"
+    """Signed amount with the sign first ('-UGX 3,000'), so st.metric picks the right arrow.
 
+    Zero has no sign ('UGX 0'); callers should also turn the metric arrow off.
+    """
+    if is_zero(amount):
+        return fmt(0)
+    return f"{'-' if amount < 0 else '+'}{CODE} {number(abs(amount))}"
 
-def input_min(current: float | None = None) -> float:
-    """number_input min_value that never rejects an already-stored smaller amount."""
-    return MIN_AMOUNT if current is None else min(MIN_AMOUNT, current)

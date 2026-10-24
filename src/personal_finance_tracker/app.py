@@ -12,7 +12,7 @@ import streamlit as st
 from personal_finance_tracker import analytics, charts, currency
 from personal_finance_tracker.db import ExpenseDB
 
-st.set_page_config(page_title="Expense Tracker", page_icon="💸", layout="wide")
+st.set_page_config(page_title="Expense Tracker", layout="wide")
 
 
 @st.cache_resource
@@ -39,9 +39,9 @@ def render_alerts(alerts: list[analytics.BudgetAlert]) -> None:
     for a in alerts:
         msg = f"**{md_escape(a.category)}**: spent {currency.fmt(a.spent)} of {currency.fmt(a.limit)} ({a.ratio:.0%})"
         if a.level == "over":
-            st.error(f"Over budget — {msg}", icon="🚨")
+            st.error(f"Over budget — {msg}")
         elif a.level == "warning":
-            st.warning(f"Nearing budget — {msg}", icon="⚠️")
+            st.warning(f"Nearing budget — {msg}")
 
 
 db = get_db()
@@ -49,8 +49,10 @@ categories = db.categories()
 all_expenses = db.get_expenses()
 this_month = pd.Period(date.today(), freq="M").strftime("%Y-%m")
 NEW_CATEGORY = "+ New category…"
+AMOUNT_ERROR = "Enter an amount greater than 0."
+ADD_FORM_KEYS = ("add_date", "add_amount", "add_category", "add_new_category", "add_description")
 
-st.title("💸 Expense Tracker")
+st.title("Expense Tracker")
 st.caption("Log what you spend, sort it into categories, and see where your money goes.")
 
 if flash := st.session_state.pop("flash", None):
@@ -59,39 +61,46 @@ if flash := st.session_state.pop("flash", None):
     render_alerts(alerts)
 
 tab_add, tab_dash, tab_manage, tab_budgets = st.tabs(
-    ["➕ Add expense", "📊 Dashboard", "🗂️ Manage expenses", "🎯 Budgets"]
+    ["Add expense", "Dashboard", "Manage expenses", "Budgets"]
 )
 
 # --- Add expense ------------------------------------------------------------
 with tab_add:
-    with st.form("add_expense", clear_on_submit=True):
+    # Not clear_on_submit: a rejected submit must keep the user's input. The keyed
+    # fields are reset by removing their state after a successful add instead.
+    with st.form("add_expense"):
         c1, c2, c3 = st.columns(3)
-        when = c1.date_input("Date", value=date.today())
+        when = c1.date_input("Date", value=date.today(), key="add_date")
         amount = c2.number_input(
             f"Amount ({currency.CODE})",
-            min_value=currency.MIN_AMOUNT,
+            min_value=currency.INPUT_MIN,
             step=currency.STEP,
             format=currency.INPUT_FORMAT,
+            key="add_amount",
         )
-        category = c3.selectbox("Category", categories + [NEW_CATEGORY])
-        new_category = st.text_input("New category name (if selected above)")
-        description = st.text_input("Description", placeholder="e.g. Groceries at the market")
+        category = c3.selectbox("Category", categories + [NEW_CATEGORY], key="add_category")
+        new_category = st.text_input("New category name (if selected above)", key="add_new_category")
+        description = st.text_input(
+            "Description", placeholder="e.g. Groceries at the market", key="add_description"
+        )
         submitted = st.form_submit_button("Add expense", type="primary")
 
     if submitted:
         new_category = new_category.strip()
-        error = None
+        errors = []
         if category == NEW_CATEGORY:
             # Reuse an existing category's spelling if the name only differs by case.
             existing = {c.lower(): c for c in categories}
             category = existing.get(new_category.lower(), new_category)
             if not category:
-                error = "Please enter a name for the new category."
+                errors.append("Please enter a name for the new category.")
         elif new_category:
-            error = f"Select “{NEW_CATEGORY}” to use a new category name, or clear that field."
-        if error:
+            errors.append(f"Select “{NEW_CATEGORY}” to use a new category name, or clear that field.")
+        if not currency.is_positive(amount):
+            errors.append(AMOUNT_ERROR)
+        for error in errors:
             st.error(error)
-        else:
+        if not errors:
             db.add_expense(when, amount, category, description)
             # Immediate budget check for the month the expense falls in; shown after rerun.
             alerts = []
@@ -102,6 +111,8 @@ with tab_add:
                     db.get_expenses(start, end), {category: budgets[category]}
                 )
             st.session_state["flash"] = (f"Added {currency.fmt(amount)} to {md_escape(category)}.", alerts)
+            for key in ADD_FORM_KEYS:
+                st.session_state.pop(key, None)
             st.rerun()
 
 # --- Dashboard --------------------------------------------------------------
@@ -121,13 +132,17 @@ with tab_dash:
         prev = str(pd.Period(selected, freq="M") - 1)
         month_total = float(month_df["amount"].sum())
         prev_total = float(totals.get(prev, 0.0))
+        no_change = currency.is_zero(month_total - prev_total)
 
         m1, m2, m3 = st.columns(3)
         m1.metric(
             f"Spent in {selected}",
             currency.fmt(month_total),
             delta=f"{currency.signed(month_total - prev_total)} vs {prev}" if prev_total else None,
-            delta_color="inverse",
+            # Streamlit reads any delta without a leading "-" as an increase, so a
+            # zero change gets no arrow and a neutral colour.
+            delta_color="off" if no_change else "inverse",
+            delta_arrow="off" if no_change else "auto",
         )
         m2.metric("Transactions", len(month_df))
         top = analytics.by_category(month_df)
@@ -194,7 +209,7 @@ with tab_manage:
                 e_date = c1.date_input("Date", value=row["date"].date())
                 e_amount = c2.number_input(
                     f"Amount ({currency.CODE})",
-                    min_value=currency.input_min(float(row["amount"])),
+                    min_value=currency.INPUT_MIN,
                     step=currency.STEP,
                     value=float(row["amount"]),
                     format=currency.INPUT_FORMAT,
@@ -205,7 +220,11 @@ with tab_manage:
                 b1, b2 = st.columns([1, 6])
                 save = b1.form_submit_button("Save", type="primary")
                 delete = b2.form_submit_button("Delete")
-            if save:
+            # An unchanged amount is accepted even if it predates whole-shilling input (e.g. 0.4).
+            amount_ok = currency.is_positive(e_amount) or e_amount == float(row["amount"])
+            if save and not amount_ok:
+                st.error(AMOUNT_ERROR)
+            elif save:
                 db.update_expense(expense_id, e_date, e_amount, e_cat, e_desc)
                 st.session_state["flash"] = (f"Updated expense #{expense_id}.", [])
                 st.rerun()
@@ -228,16 +247,19 @@ with tab_budgets:
     with st.form("budget"):
         b_limit = st.number_input(
             f"Monthly limit for {md_escape(b_cat)} ({currency.CODE})",
-            min_value=currency.input_min(budgets.get(b_cat)),
+            min_value=currency.INPUT_MIN,
             step=currency.STEP,
             value=float(budgets.get(b_cat, currency.DEFAULT_BUDGET)),
             format=currency.INPUT_FORMAT,
             key=f"budget_limit_{b_cat}",
         )
-        if st.form_submit_button("Save budget", type="primary"):
-            db.set_budget(b_cat, b_limit)
-            st.session_state["flash"] = (f"Saved budget for {md_escape(b_cat)}.", [])
-            st.rerun()
+        save_budget = st.form_submit_button("Save budget", type="primary")
+    if save_budget and not currency.is_positive(b_limit):
+        st.error(AMOUNT_ERROR)
+    elif save_budget:
+        db.set_budget(b_cat, b_limit)
+        st.session_state["flash"] = (f"Saved budget for {md_escape(b_cat)}.", [])
+        st.rerun()
 
     if budgets:
         start, end = month_bounds(this_month)

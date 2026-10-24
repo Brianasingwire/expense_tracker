@@ -150,23 +150,53 @@ def test_currency_defaults_to_ugx():
     assert currency.number(-0.4) == "0"  # no "-0"
     assert currency.signed(-3000) == "-UGX 3,000"
     assert currency.signed(2500) == "+UGX 2,500"
-    assert currency.signed(-0.4) == "+UGX 0"
-    assert currency.input_min() == 1.0
-    assert currency.input_min(0.5) == 0.5
+    assert currency.signed(-0.4) == "UGX 0"  # zero is unsigned
+    assert currency.INPUT_MIN == 0.0  # so steps of 1,000 land on 7,000 not 7,001
+    assert not currency.is_positive(0) and not currency.is_positive(0.4)
+    assert currency.is_positive(0.5) and currency.is_positive(7000)
+
+
+def test_is_positive_matches_db_in_usd(use_currency):
+    currency = use_currency("USD")
+    assert not currency.is_positive(0.004)
+    assert currency.is_positive(0.005)
+    assert currency.signed(0.004) == "USD 0.00" and currency.is_zero(0.004)
+
+
+def test_chart_axes_show_full_amounts(tmp_path):
+    import matplotlib.pyplot as plt
+    from personal_finance_tracker import charts
+
+    db = ExpenseDB(tmp_path / "big.db")
+    db.add_expense(date(2026, 9, 1), 1_200_000, "Food")
+    db.add_expense(date(2026, 10, 1), 3_500_000, "Housing")
+    df = db.get_expenses()
+    for fig, axis in (
+        (charts.monthly_bar(analytics.monthly_totals(df)), "y"),
+        (charts.monthly_stacked(analytics.monthly_by_category(df)), "y"),
+        (charts.category_bar(analytics.by_category(df)), "x"),
+    ):
+        fig.canvas.draw()
+        ax = fig.axes[0]
+        ticks = ax.get_yticklabels() if axis == "y" else ax.get_xticklabels()
+        labels = [t.get_text() for t in ticks]
+        offset = (ax.yaxis if axis == "y" else ax.xaxis).get_offset_text().get_text()
+        assert "1,000,000" in labels and offset == ""
+        plt.close(fig)
 
 
 @pytest.mark.parametrize(
-    "env, code, formatted, min_amount, budget",
+    "env, code, formatted, step, budget",
     [
-        ("usd", "USD", "USD 1,234.50", 0.01, 100.0),
-        ("JPY", "JPY", "JPY 1,235", 1.0, 500_000.0),
-        ("[x](http://e)", "UGX", "UGX 1,235", 1.0, 500_000.0),  # invalid -> default
-        ("", "UGX", "UGX 1,235", 1.0, 500_000.0),
+        ("usd", "USD", "USD 1,234.50", 1.0, 100.0),
+        ("JPY", "JPY", "JPY 1,235", 1000.0, 500_000.0),
+        ("[x](http://e)", "UGX", "UGX 1,235", 1000.0, 500_000.0),  # invalid -> default
+        ("", "UGX", "UGX 1,235", 1000.0, 500_000.0),
     ],
 )
-def test_currency_override(use_currency, env, code, formatted, min_amount, budget):
+def test_currency_override(use_currency, env, code, formatted, step, budget):
     currency = use_currency(env)
     assert currency.CODE == code
     assert currency.fmt(1234.5) == formatted
-    assert currency.MIN_AMOUNT == min_amount
+    assert currency.STEP == step
     assert currency.DEFAULT_BUDGET == budget
