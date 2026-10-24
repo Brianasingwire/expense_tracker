@@ -1,0 +1,26 @@
+[project]
+name = "personal-finance-tracker"
+version = "0.1.0"
+description = "Expense tracker: log spending, group by category, monthly charts and budget alerts"
+readme = "README.md"
+authors = [
+    { name = "Brian Asingwire", email = "brianasingwire7@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "matplotlib>=3.10.9",
+    "pandas>=2.3.3",
+    "streamlit>=1.65.0",
+]
+
+[project.scripts]
+personal-finance-tracker = "personal_finance_tracker:main"
+
+[build-system]
+requires = ["uv_build>=0.12.5,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
