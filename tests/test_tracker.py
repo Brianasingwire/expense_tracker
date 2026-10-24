@@ -213,3 +213,39 @@ def test_small_totals_get_whole_number_ticks():
     labels = [t.get_text() for t in fig.axes[0].get_yticklabels()]
     assert len(labels) == len(set(labels))  # no "1" for both 0.5 and 1
     plt.close(fig)
+
+
+@pytest.mark.parametrize("scale", [1_234_567, 123_456_789, 2_500_000_000])
+def test_category_axis_labels_round_and_not_overlapping(scale):
+    import matplotlib.pyplot as plt
+    import pandas as pd
+    from personal_finance_tracker import charts
+
+    fig = charts.category_bar(pd.Series({"Food": scale, "Rent": scale / 3, "Fun": scale / 7}))
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    ticks = [t for t in fig.axes[0].get_xticklabels() if t.get_text()]
+    boxes = [t.get_window_extent(renderer) for t in ticks]
+    assert not any(a.overlaps(b) for a, b in zip(boxes, boxes[1:]))
+    step = fig.axes[0].get_xticks()[1] - fig.axes[0].get_xticks()[0]
+    mantissa = step / 10 ** int(f"{step:e}".split("e")[1])
+    assert mantissa in (1, 2, 2.5, 5)  # round steps, not 1.5/3/4/6/8
+    plt.close(fig)
+
+
+@pytest.mark.parametrize("total", [0.4, 0.9])
+def test_sub_unit_totals_have_distinct_labels(total):
+    import matplotlib.pyplot as plt
+    import pandas as pd
+    from personal_finance_tracker import charts
+
+    for fig, axis in (
+        (charts.monthly_bar(pd.Series({"2026-10": total})), "y"),
+        (charts.category_bar(pd.Series({"Food": total})), "x"),
+    ):
+        fig.canvas.draw()
+        ax = fig.axes[0]
+        ticks = ax.get_yticklabels() if axis == "y" else ax.get_xticklabels()
+        labels = [t.get_text() for t in ticks if t.get_text()]
+        assert len(labels) == len(set(labels)), labels
+        plt.close(fig)

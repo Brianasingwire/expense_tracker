@@ -1,0 +1,24 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Run expense tracker",
+      "detail": "Streamlit app on http://localhost:8502 (reloads on save)",
+      "type": "shell",
+      "command": "uv run personal-finance-tracker --server.port 8502",
+      "options": { "cwd": "${workspaceFolder}" },
+      "isBackground": true,
+      "group": { "kind": "build", "isDefault": true },
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true },
+      // Lets VS Code know the server is up, so the task doesn't show as "still starting".
+      "problemMatcher": {
+        "owner": "streamlit",
+        "pattern": { "regexp": "^__never_matches__$" },
+        "background": {
+          "beginsPattern": "Uvicorn server",
+          "endsPattern": "You can now view your Streamlit app"
+        }
+      }
+    }
+  ]
+}

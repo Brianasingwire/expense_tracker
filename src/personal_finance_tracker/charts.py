@@ -25,10 +25,21 @@ _MONEY = FuncFormatter(lambda value, _pos: currency.number(value))
 
 
 def _money_axis(axis) -> None:
+    """Format a value axis as money. Call after the data is plotted."""
     axis.set_major_formatter(_MONEY)
     if currency.DECIMALS == 0:
         # Whole-unit ticks only; otherwise 0.5 would be labelled "1" next to a real 1.
-        axis.set_major_locator(MaxNLocator(integer=True))
+        # nbins/steps match Matplotlib's default AutoLocator so large values keep
+        # round, non-overlapping ticks (200,000 rather than 150,000 steps).
+        axis.set_major_locator(
+            MaxNLocator(nbins="auto", steps=[1, 2, 2.5, 5, 10], integer=True)
+        )
+        # integer=True is ignored when the range is below 1 (e.g. old 0.4 rows),
+        # which would label every tick "0"; make the axis span at least one unit.
+        low, high = axis.get_view_interval()
+        if high < 1:
+            set_lim = axis.axes.set_ylim if axis.axis_name == "y" else axis.axes.set_xlim
+            set_lim(min(low, 0), 1)
 
 
 def _style(ax) -> None:

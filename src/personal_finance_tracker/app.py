@@ -16,10 +16,11 @@ from personal_finance_tracker.db import DEFAULT_DB_PATH, ExpenseDB
 st.set_page_config(page_title="Expense Tracker", layout="wide")
 
 
-@st.cache_resource
+@st.cache_resource(max_entries=1)
 def get_db(path: str, class_id: int) -> ExpenseDB:
-    # Keyed on the class identity so a runOnSave reload of db.py builds a fresh
-    # instance instead of reusing one made from the old class.
+    # Keyed on the class identity: a runOnSave reload of any package file re-imports
+    # db.py, so this builds an instance of the current class. max_entries=1 drops the
+    # stale instance (and its old class) instead of keeping one per save.
     return ExpenseDB(path)
 
 
