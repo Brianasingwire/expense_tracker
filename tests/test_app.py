@@ -220,10 +220,13 @@ def test_rejected_add_keeps_input_and_success_resets(db):
     row = db.get_expenses().iloc[0]
     assert (row["amount"], row["category"], row["description"]) == (5000.0, "Transport", "Lunch with client")
 
-    form = add_tab(at)  # fields reset after a successful add
-    assert form.number_input[0].value == 0.0
-    assert form.selectbox[0].value == "Food"
-    assert next(t for t in form.text_input if t.label == "Description").value == ""
+    # After a successful add the form is rebuilt under new keys. Popping the old keys
+    # isn't enough: the browser keeps showing (and resubmits) the old values.
+    assert at.session_state["add_form_n"] == 1
+    assert at.number_input(key="add_amount_1").value == 0.0
+    assert at.date_input(key="add_date_1").value == date.today()
+    assert at.selectbox(key="add_category_1").value == "Food"
+    assert at.text_input(key="add_description_1").value == ""
 
 
 def test_add_shows_all_errors_at_once(db):

@@ -9,7 +9,7 @@ matplotlib.use("Agg")  # headless backend; Streamlit renders the figure objects
 import matplotlib.pyplot as plt
 import pandas as pd
 from matplotlib.figure import Figure
-from matplotlib.ticker import FuncFormatter
+from matplotlib.ticker import FuncFormatter, MaxNLocator
 
 from personal_finance_tracker import currency
 
@@ -24,8 +24,15 @@ PALETTE = plt.get_cmap("tab10").colors
 _MONEY = FuncFormatter(lambda value, _pos: currency.number(value))
 
 
+def _money_axis(axis) -> None:
+    axis.set_major_formatter(_MONEY)
+    if currency.DECIMALS == 0:
+        # Whole-unit ticks only; otherwise 0.5 would be labelled "1" next to a real 1.
+        axis.set_major_locator(MaxNLocator(integer=True))
+
+
 def _style(ax) -> None:
-    ax.yaxis.set_major_formatter(_MONEY)
+    _money_axis(ax.yaxis)
     ax.spines[["top", "right"]].set_visible(False)
     ax.grid(axis="y", alpha=0.3)
     ax.set_axisbelow(True)
@@ -51,7 +58,7 @@ def category_bar(totals: pd.Series) -> Figure:
     ax.bar_label(bars, labels=[currency.number(v) for v in data.values], fontsize=8, padding=3)
     ax.set_title("Spending by category")
     ax.set_xlabel(f"Amount ({currency.CODE})")
-    ax.xaxis.set_major_formatter(_MONEY)
+    _money_axis(ax.xaxis)
     ax.spines[["top", "right"]].set_visible(False)
     ax.grid(axis="x", alpha=0.3)
     ax.set_axisbelow(True)

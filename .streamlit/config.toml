@@ -1,3 +1,5 @@
 # Applies to any `streamlit run` from the repo root. The app has no auth, so keep it local.
 [server]
 address = "127.0.0.1"
+# Rerun the app automatically when a source file is saved.
+runOnSave = true

@@ -181,7 +181,8 @@ def test_chart_axes_show_full_amounts(tmp_path):
         ticks = ax.get_yticklabels() if axis == "y" else ax.get_xticklabels()
         labels = [t.get_text() for t in ticks]
         offset = (ax.yaxis if axis == "y" else ax.xaxis).get_offset_text().get_text()
-        assert "1,000,000" in labels and offset == ""
+        values = [int(label.replace(",", "")) for label in labels if label]
+        assert max(values) >= 1_000_000 and offset == ""  # full amounts, no "1e6"
         plt.close(fig)
 
 
@@ -200,3 +201,15 @@ def test_currency_override(use_currency, env, code, formatted, step, budget):
     assert currency.fmt(1234.5) == formatted
     assert currency.STEP == step
     assert currency.DEFAULT_BUDGET == budget
+
+
+def test_small_totals_get_whole_number_ticks():
+    import matplotlib.pyplot as plt
+    import pandas as pd
+    from personal_finance_tracker import charts
+
+    fig = charts.monthly_bar(pd.Series({"2026-09": 1.0, "2026-10": 3.0}))
+    fig.canvas.draw()
+    labels = [t.get_text() for t in fig.axes[0].get_yticklabels()]
+    assert len(labels) == len(set(labels))  # no "1" for both 0.5 and 1
+    plt.close(fig)

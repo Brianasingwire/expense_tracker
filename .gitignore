@@ -25,3 +25,9 @@ wheels/
 .env.*
 *.sqlite3-*
 *.xlsx
+*.sqlite-*
+.envrc
+
+# Subagent review logs (local only)
+logs/code-reviewer.log
+logs/security-reviewer.log

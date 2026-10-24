@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import os
 from datetime import date
 
 import matplotlib.pyplot as plt
@@ -10,14 +11,16 @@ import pandas as pd
 import streamlit as st
 
 from personal_finance_tracker import analytics, charts, currency
-from personal_finance_tracker.db import ExpenseDB
+from personal_finance_tracker.db import DEFAULT_DB_PATH, ExpenseDB
 
 st.set_page_config(page_title="Expense Tracker", layout="wide")
 
 
 @st.cache_resource
-def get_db() -> ExpenseDB:
-    return ExpenseDB()
+def get_db(path: str, class_id: int) -> ExpenseDB:
+    # Keyed on the class identity so a runOnSave reload of db.py builds a fresh
+    # instance instead of reusing one made from the old class.
+    return ExpenseDB(path)
 
 
 def month_bounds(period: str) -> tuple[date, date]:
@@ -44,13 +47,12 @@ def render_alerts(alerts: list[analytics.BudgetAlert]) -> None:
             st.warning(f"Nearing budget — {msg}")
 
 
-db = get_db()
+db = get_db(os.environ.get("EXPENSE_DB_PATH", str(DEFAULT_DB_PATH)), id(ExpenseDB))
 categories = db.categories()
 all_expenses = db.get_expenses()
 this_month = pd.Period(date.today(), freq="M").strftime("%Y-%m")
 NEW_CATEGORY = "+ New category…"
 AMOUNT_ERROR = "Enter an amount greater than 0."
-ADD_FORM_KEYS = ("add_date", "add_amount", "add_category", "add_new_category", "add_description")
 
 st.title("Expense Tracker")
 st.caption("Log what you spend, sort it into categories, and see where your money goes.")
@@ -66,22 +68,24 @@ tab_add, tab_dash, tab_manage, tab_budgets = st.tabs(
 
 # --- Add expense ------------------------------------------------------------
 with tab_add:
-    # Not clear_on_submit: a rejected submit must keep the user's input. The keyed
-    # fields are reset by removing their state after a successful add instead.
-    with st.form("add_expense"):
+    # Not clear_on_submit: a rejected submit must keep the user's input. After a
+    # successful add the counter changes every key, so the browser renders fresh
+    # widgets with their defaults (popping session-state keys doesn't reset the browser).
+    n = st.session_state.setdefault("add_form_n", 0)
+    with st.form(f"add_expense_{n}"):
         c1, c2, c3 = st.columns(3)
-        when = c1.date_input("Date", value=date.today(), key="add_date")
+        when = c1.date_input("Date", value=date.today(), key=f"add_date_{n}")
         amount = c2.number_input(
             f"Amount ({currency.CODE})",
             min_value=currency.INPUT_MIN,
             step=currency.STEP,
             format=currency.INPUT_FORMAT,
-            key="add_amount",
+            key=f"add_amount_{n}",
         )
-        category = c3.selectbox("Category", categories + [NEW_CATEGORY], key="add_category")
-        new_category = st.text_input("New category name (if selected above)", key="add_new_category")
+        category = c3.selectbox("Category", categories + [NEW_CATEGORY], key=f"add_category_{n}")
+        new_category = st.text_input("New category name (if selected above)", key=f"add_new_category_{n}")
         description = st.text_input(
-            "Description", placeholder="e.g. Groceries at the market", key="add_description"
+            "Description", placeholder="e.g. Groceries at the market", key=f"add_description_{n}"
         )
         submitted = st.form_submit_button("Add expense", type="primary")
 
@@ -111,8 +115,7 @@ with tab_add:
                     db.get_expenses(start, end), {category: budgets[category]}
                 )
             st.session_state["flash"] = (f"Added {currency.fmt(amount)} to {md_escape(category)}.", alerts)
-            for key in ADD_FORM_KEYS:
-                st.session_state.pop(key, None)
+            st.session_state["add_form_n"] = n + 1
             st.rerun()
 
 # --- Dashboard --------------------------------------------------------------
